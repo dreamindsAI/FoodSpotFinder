@@ -1,42 +1,44 @@
 from playwright.sync_api import sync_playwright
+import time
 
-def scrape_hotel_links(search_text):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        page = browser.new_page()
-        page.goto("https://www.google.com/maps", timeout=60000)
+GOOGLE_MAP_BASE_URL = "https://www.google.com/maps"
 
-        page.wait_for_selector('//input[@id="searchboxinput"]', timeout=10000)
-        page.locator('//input[@id="searchboxinput"]').fill(search_text)
-        page.keyboard.press("Enter")
+def scrape_all_info(search_query:str)->None:
+    """
+    Scrape all info and save it as html
+    """
+    with sync_playwright() as playwright:
+        with playwright.chromium.launch(headless=False) as browser:
+            context = browser.new_context(java_script_enabled=True)
+            page = context.new_page()
+            page.goto(GOOGLE_MAP_BASE_URL, wait_until="load")
 
-        page.wait_for_selector('//h1[text()="Results"]', timeout=10000)
-        result_element = page.locator('//h1[text()="Results"]')
-        pre_div = result_element.locator("..").locator('..').locator('..')
-        for _ in range(10):
-            next_div = pre_div.evaluate_handle(
-                "el => el.nextElementSibling"
-            )
-            details =  page.evaluate('''
-                (element) => {
-                    const links = [];
-                    element.querySelectorAll('div div a').forEach(a => {
-                        links.push({
-                            ariaLabel: a.getAttribute('aria-label'),
-                        });
-                    });
-                    return links;
-                }
-            ''', next_div)
-            print(details)
-            pre_div = next_div
+            page.wait_for_selector('//input[@id="searchboxinput"]', timeout=5000)
+            page.locator('//input[@id="searchboxinput"]').fill(search_query)
+            page.keyboard.press("Enter")
 
-        page.wait_for_timeout(10000)
-        browser.close()
+            x_path_search_result_element = '//div[@role="feed"]'
+            page.wait_for_selector(x_path_search_result_element, timeout=5000)
+            results_container = page.query_selector(x_path_search_result_element)
+            results_container.scroll_into_view_if_needed()
 
-        return None
+            keep_scolling = True
+            while keep_scolling:
+                results_container.press('Space')
+                time.sleep(2.5)
 
-# Example usage:
-search_text = "food spots in Palachira"
-hotels = scrape_hotel_links(search_text)
+                if results_container.query_selector('//span[text()="You\'ve reached the end of the list."]'):
+                    results_container.press('Space')
+                    keep_scolling = False
+
+                    html_filename = f'notebooks/htmls/{search_query.replace(" ", "_")}.html'
+                    with open(html_filename, "w", encoding="utf-8") as file:
+                        file.write(results_container.inner_html())
+    
+    return None
+
+if __name__ == "__main__":
+
+    search_query = "food spots in cherunniyoor"
+    scrape_all_info(search_query)
 
